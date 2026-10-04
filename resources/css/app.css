@@ -2,13 +2,80 @@
 
 @plugin '@tailwindcss/forms';
 
-@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
-@source '../../storage/framework/views/*.php';
-
 @theme {
-  --font-sans:
-    Figtree, ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
-    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-sans:
+        Figtree, ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
+        'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-display: 'Playfair Display', ui-serif, Georgia, serif;
+
+    /* Brand accent: warm copper/terracotta used across CTAs and highlights. */
+    --color-ember-50: #fcf1e9;
+    --color-ember-100: #f8dfc8;
+    --color-ember-200: #f0c094;
+    --color-ember-400: #e08a4c;
+    --color-ember-500: #d4702e;
+    --color-ember-600: #b5571f;
+    --color-ember-700: #92441a;
+    --color-ember-900: #4a2410;
+
+    /* Hero slideshow: the active progress bar fills, then its animationend advances the slide. */
+    --animate-slide-progress: slide-progress 6.5s linear forwards;
+
+    @keyframes slide-progress {
+        from {
+            transform: scaleX(0);
+        }
+        to {
+            transform: scaleX(1);
+        }
+    }
+}
+
+@utility scrollbar-none {
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+        display: none;
+    }
+}
+
+html {
+    /* Anchor jumps land below the fixed header. */
+    scroll-padding-top: 4.5rem;
+}
+
+/* Hides Alpine-controlled elements (menus, the fullscreen viewer) until Alpine has started. */
+[x-cloak] {
+    display: none !important;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    html {
+        scroll-behavior: smooth;
+    }
+}
+
+/*
+  Stand-in "avant" look for BeforeAfterSlider while only "après" photos exist: the photo is
+  dulled, then dust specks and road-film blotches are multiplied over it.
+*/
+@layer components {
+    .before-grime {
+        filter: saturate(0.45) sepia(0.3) brightness(0.74) contrast(0.86);
+    }
+
+    .grime-overlay {
+        background-image:
+            url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='d'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.42 0 0 0 0 0.34 0 0 0 0 0.24 0 0 0 2.2 -1.2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23d)'/%3E%3C/svg%3E"),
+            url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='600'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.008 0.02' numOctaves='3' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.24 0 0 0 0 0.17 0 0 0 3 -1.45'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23b)'/%3E%3C/svg%3E"),
+            linear-gradient(to top, rgb(87 68 45 / 0.35), transparent 60%);
+        background-size:
+            240px 240px,
+            cover,
+            100% 100%;
+        mix-blend-mode: multiply;
+        opacity: 0.9;
+    }
 }
 
 /*
@@ -20,11 +87,11 @@
   color utility to any element that depends on these defaults.
 */
 @layer base {
-  *,
-  ::after,
-  ::before,
-  ::backdrop,
-  ::file-selector-button {
-    border-color: var(--color-gray-200, currentcolor);
-  }
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-gray-200, currentcolor);
+    }
 }

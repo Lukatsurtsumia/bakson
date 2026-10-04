@@ -2,5 +2,5 @@
     "guidelines": true,
     "mcp": true,
     "nightwatch": false,
-    "sail": false
+    "sail": true
 }
