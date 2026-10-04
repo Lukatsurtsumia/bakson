@@ -4,15 +4,32 @@ namespace App\Livewire;
 
 use App\Mail\ContactMessageReceived;
 use App\Models\ContactMessage;
+use App\Support\Turnstile;
+use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Throwable;
 
+/**
+ * The quote request form. Spam protection, cheapest first: a honeypot field, a minimum fill
+ * time, no links, Cloudflare Turnstile (when configured), a duplicate guard, a per-IP limit,
+ * and an hourly cap across all visitors that keeps Gmail's sending limit safe.
+ */
 class ContactForm extends Component
 {
+    /**
+     * Humans need longer than this to fill the form in; bots submit almost instantly.
+     */
+    public const MIN_FILL_SECONDS = 3;
+
+    public const MAX_PER_IP = 5;
+
+    public const MAX_PER_HOUR = 30;
+
     public string $name = '';
 
     public string $email = '';
@@ -31,7 +48,23 @@ class ContactForm extends Component
      */
     public string $website = '';
 
+    /**
+     * Token from the Turnstile widget, checked with Cloudflare on submit.
+     */
+    public string $captchaToken = '';
+
+    /**
+     * When the form was shown. Locked, so the browser can't change it.
+     */
+    #[Locked]
+    public int $shownAt = 0;
+
     public bool $sent = false;
+
+    public function mount(): void
+    {
+        $this->shownAt = now()->getTimestamp();
+    }
 
     /**
      * @return array<string, list<mixed>>
@@ -39,11 +72,11 @@ class ContactForm extends Component
     protected function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255'],
+            'name' => ['required', 'string', 'max:255', $this->withoutLinks(...)],
             'email' => ['required', 'string', 'email', 'max:255'],
             'phone' => ['nullable', 'string', 'max:30'],
             'preferredTime' => ['required', Rule::in(array_keys(config('site.time_slots')))],
-            'message' => ['required', 'string', 'max:2000'],
+            'message' => ['required', 'string', 'max:2000', $this->withoutLinks(...)],
         ];
     }
 
@@ -67,6 +100,16 @@ class ContactForm extends Component
     }
 
     /**
+     * Spam nearly always carries links; a real quote request doesn't need one.
+     */
+    private function withoutLinks(string $attribute, mixed $value, Closure $fail): void
+    {
+        if (is_string($value) && preg_match('~https?://|www\.|<a\s~i', $value)) {
+            $fail('Merci de ne pas inclure de liens.');
+        }
+    }
+
+    /**
      * Check each field as soon as the visitor leaves it or picks a time slot.
      */
     public function updated(string $property): void
@@ -80,22 +123,43 @@ class ContactForm extends Component
     {
         $validated = $this->validate();
 
-        if ($this->website !== '') {
-            // A bot filled the honeypot: pretend it worked, but keep nothing.
+        // Bots: they fill the hidden field or submit faster than a person can type. Pretend it
+        // worked so they don't adapt, but keep nothing.
+        if ($this->website !== '' || now()->getTimestamp() - $this->shownAt < self::MIN_FILL_SECONDS) {
             $this->sent = true;
 
             return;
         }
 
-        $rateLimitKey = 'contact-form:'.request()->ip();
-
-        if (RateLimiter::tooManyAttempts($rateLimitKey, maxAttempts: 5)) {
-            $this->addError('form', 'Trop de demandes envoyées. Merci de réessayer dans quelques minutes, ou appelez-nous directement.');
+        if (Turnstile::enabled() && ! Turnstile::verify($this->captchaToken, request()->ip())) {
+            $this->addError('captchaToken', 'La vérification anti-robot a échoué. Merci de réessayer.');
+            $this->resetCaptcha();
 
             return;
         }
 
-        RateLimiter::hit($rateLimitKey, decaySeconds: 600);
+        // The same request sent twice (double tap, reload): thank them, store it once.
+        $duplicateKey = 'contact-form:duplicate:'.sha1(mb_strtolower($validated['email']).'|'.$validated['message']);
+
+        if (RateLimiter::tooManyAttempts($duplicateKey, maxAttempts: 1)) {
+            $this->finish();
+
+            return;
+        }
+
+        $perIpKey = 'contact-form:ip:'.request()->ip();
+        $globalKey = 'contact-form:all';
+
+        if (RateLimiter::tooManyAttempts($perIpKey, self::MAX_PER_IP) || RateLimiter::tooManyAttempts($globalKey, self::MAX_PER_HOUR)) {
+            $this->addError('form', 'Trop de demandes envoyées. Merci de réessayer un peu plus tard, ou appelez-nous directement.');
+            $this->resetCaptcha();
+
+            return;
+        }
+
+        RateLimiter::hit($duplicateKey, decaySeconds: 600);
+        RateLimiter::hit($perIpKey, decaySeconds: 600);
+        RateLimiter::hit($globalKey, decaySeconds: 3600);
 
         $contactMessage = ContactMessage::create([
             'name' => $validated['name'],
@@ -112,20 +176,37 @@ class ContactForm extends Component
             report($exception);
         }
 
-        $this->reset('name', 'email', 'phone', 'preferredTime', 'message');
+        $this->finish();
+    }
+
+    public function sendAnother(): void
+    {
+        $this->sent = false;
+        $this->shownAt = now()->getTimestamp();
+    }
+
+    private function finish(): void
+    {
+        $this->reset('name', 'email', 'phone', 'preferredTime', 'message', 'captchaToken');
         $this->sent = true;
 
         // The thank-you card is shorter than the form, so bring it back into view.
         $this->js("document.getElementById('devis').scrollIntoView({ block: 'nearest' })");
     }
 
-    public function sendAnother(): void
+    /**
+     * A Turnstile token works once; after a failed attempt the widget needs a fresh one.
+     */
+    private function resetCaptcha(): void
     {
-        $this->sent = false;
+        $this->captchaToken = '';
+        $this->dispatch('turnstile-reset');
     }
 
     public function render(): View
     {
-        return view('livewire.contact-form');
+        return view('livewire.contact-form', [
+            'turnstileSiteKey' => Turnstile::enabled() ? Turnstile::siteKey() : null,
+        ]);
     }
 }

@@ -141,6 +141,37 @@
                 <input id="contact-website" type="text" wire:model="website" tabindex="-1" autocomplete="off">
             </div>
 
+            @if ($turnstileSiteKey)
+                {{-- Cloudflare Turnstile: invisible unless Cloudflare wants the visitor to confirm. Its token is
+                     checked on submit; the server dispatches turnstile-reset when a new one is needed. --}}
+                <div
+                    wire:ignore
+                    x-data="{
+                        widgetId: null,
+                        init() {
+                            const render = () => {
+                                this.widgetId = window.turnstile.render(this.$el, {
+                                    sitekey: @js($turnstileSiteKey),
+                                    language: 'fr',
+                                    size: 'flexible',
+                                    appearance: 'interaction-only',
+                                    callback: (token) => { this.$wire.captchaToken = token },
+                                    'expired-callback': () => { this.$wire.captchaToken = '' },
+                                });
+                            };
+                            window.turnstile ? render() : window.addEventListener('turnstile-loaded', render, { once: true });
+                        },
+                        destroy() {
+                            if (this.widgetId !== null) window.turnstile?.remove(this.widgetId);
+                        },
+                    }"
+                    @turnstile-reset.window="widgetId !== null && window.turnstile?.reset(widgetId)"
+                ></div>
+                @error('captchaToken')
+                    <p class="text-sm text-red-600" role="alert">{{ $message }}</p>
+                @enderror
+            @endif
+
             @error('form')
                 <p class="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700 ring-1 ring-red-100" role="alert">{{ $message }}</p>
             @enderror
@@ -154,5 +185,14 @@
                 Vos coordonnées servent uniquement à répondre à votre demande. Elles ne sont jamais transmises à des tiers.
             </p>
         </form>
+    @endif
+
+    @if ($turnstileSiteKey)
+        @assets
+            <script>
+                window.onTurnstileLoaded = () => window.dispatchEvent(new Event('turnstile-loaded'));
+            </script>
+            <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=onTurnstileLoaded" async defer></script>
+        @endassets
     @endif
 </div>

@@ -25,6 +25,8 @@
         <env name="MAIL_MAILER" value="array"/>
         <env name="MAIL_FROM_ADDRESS" value="site@bakson.test"/>
         <env name="CONTACT_RECIPIENT" value="devis@bakson.test"/>
+        <env name="TURNSTILE_SITE_KEY" value=""/>
+        <env name="TURNSTILE_SECRET_KEY" value=""/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>

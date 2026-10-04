@@ -4,14 +4,11 @@ The repo ships a production `Dockerfile` (Composer dependencies + built Vite ass
 `serversideup/php` nginx/php-fpm on port **8080**), so Coolify builds everything itself.
 The site needs one MySQL database, for quote requests, sessions and the cache.
 
-## 1. Push the code to GitHub
+## 1. The code on GitHub
 
-The project has no remote yet. Create a **private** repository, then:
-
-```bash
-git remote add origin git@github.com:<you>/bakson.git
-git push -u origin main
-```
+The repository is **public** (<https://github.com/Lukatsurtsumia/bakson>), so Coolify can
+clone it without credentials: choose **Public Repository** and paste the URL. Secrets never
+go in the repository; they live only in Coolify's environment variables.
 
 ## 2. Create the app in Coolify
 
@@ -57,6 +54,10 @@ MAIL_FROM_ADDRESS=            # the same Gmail address
 MAIL_FROM_NAME=Bakson
 CONTACT_RECIPIENT=            # the inbox that receives quote requests
 
+# Cloudflare Turnstile, the anti-bot check on the form (see section 6). Empty = off.
+TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=
+
 # Run by the serversideup image on every boot: migrations, then config/route/view caching.
 AUTORUN_ENABLED=true
 AUTORUN_LARAVEL_MIGRATION=true
@@ -79,6 +80,23 @@ certificate. Behind Cloudflare's orange cloud, use SSL mode **Full (strict)**.
 Check it after deploying: send the form once and confirm the e-mail arrives. If it doesn't,
 the request is still saved and the SMTP error is in Coolify's logs.
 
+## 6. Spam protection on the form
+
+Always on: a hidden honeypot field, a minimum fill time (3 s), links refused in the name and
+message, a duplicate guard, 5 requests per visitor per 10 minutes, and 30 per hour for the
+whole site (this keeps Gmail's sending limit safe).
+
+**Turnstile** (Cloudflare's free, mostly invisible CAPTCHA) stops bots that drive a real
+browser. To switch it on:
+
+1. Cloudflare dashboard → **Turnstile → Add widget**: name `Bakson`, hostname `bakson.fr`,
+   widget mode **Managed**.
+2. Copy the **site key** and **secret key** into `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY`
+   in Coolify, save, redeploy.
+
+For local testing, Cloudflare's test keys always pass: site `1x00000000000000000000AA`,
+secret `1x0000000000000000000000000000000AA`.
+
 ## Gotchas
 
 - Coolify **skips the build** when an image already exists for the same commit. Push a new
@@ -94,6 +112,7 @@ the request is still saved and the SMTP error is in Coolify's logs.
 - [ ] Real photos, above all real before/after pairs: the current "avant" images are
       the "après" photos dulled with CSS.
 - [ ] Register the `bakson.fr` domain (free on 2026-10-04).
+- [ ] Turnstile keys set in Coolify (section 6).
 - [ ] *Mentions légales* and a privacy policy page: required for a French business site
       that collects personal data through a form.
 - [ ] A consent step before loading the Google Maps embed (CNIL), or replace it with a
