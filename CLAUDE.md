@@ -1,3 +1,45 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+"Bakson" is a one-page, French-language, phone-first marketing site for a car-detailing business in Lyon. Stack: Laravel 13 (PHP 8.4), server-rendered Blade, Livewire 4 for the contact form, Alpine.js (bundled with Livewire) for the interactive sections, and Tailwind CSS v4, running on Laravel Sail (MySQL 8.4). There are no user accounts: the old Breeze/Inertia/Vue scaffolding was removed on purpose.
+
+## Development Environment
+
+- The app runs via Laravel Sail. Ports are customized in `.env` (`APP_PORT=8210`, `VITE_PORT=5210`, `FORWARD_DB_PORT=3360`); don't assume Laravel's defaults (80/5173/3306).
+- Start the stack: `./vendor/bin/sail up -d --no-build` (the `sail-8.4/app` image already exists; a fresh `sail build` is slow), then `./vendor/bin/sail npm run dev` for Vite on :5210.
+- **Any Artisan command that touches the database (`migrate`, `test`, `tinker`, etc.) must run through Sail**: `DB_HOST=mysql` only resolves inside the Sail Docker network. Node and npm only exist inside the container.
+- When scripting `sail` from a heredoc or pipe, give it `< /dev/null`; otherwise `docker exec -i` swallows the rest of the script's stdin.
+- **Production** is a Coolify deploy of the repo's `Dockerfile` (serversideup php 8.4 on :8080, MySQL resource, `AUTORUN_*` migrations + optimize on boot); `DEPLOY.md` has the env vars and the launch checklist. The assets stage copies `vendor/livewire/livewire/dist` because `app.js` bundles Livewire from it. `bootstrap/app.php` trusts all proxies and appends `SecurityHeaders`.
+
+## Common Commands
+
+- Build frontend assets: `./vendor/bin/sail npm run build`
+- Format JS/CSS: `./vendor/bin/sail npm run format` (Prettier). Format PHP: `./vendor/bin/sail bin pint --dirty`
+- Run all tests: `./vendor/bin/sail artisan test`; a single file: `./vendor/bin/sail artisan test tests/Feature/ContactFormTest.php`
+
+## Architecture
+
+- **Content lives in `config/site.php`**: business details (phone, e-mail, hours, map), the contact form's time slots (`morning`/`afternoon`/`evening`; the keys are stored in `contact_messages.preferred_time`, the labels and hours can change), hero slides, services and before/after projects. The phone, e-mail and photos are placeholders. `AppServiceProvider` shares `config('site.business')` with every view as `$business`.
+- **Photos** are free-licence Unsplash images served from Unsplash's CDN; `App\Support\Unsplash` builds `src`/`srcset` URLs. Projects have `before => null`, so the slider dulls the "after" photo as a stand-in. Real before/after photos must replace them before launch.
+- **Page composition**: `routes/web.php` has a single `Route::view('/', 'home')`. `resources/views/home.blade.php` uses the `<x-layouts.site>` layout (meta/OG tags, schema.org data, Vite, Livewire) and includes the sections in `resources/views/home/` (`hero`, `services`, `before-after`, `contact`). Shared Blade components live in `resources/views/components/` (`site-header`, `site-footer`, `mobile-action-bar`, `before-after-slider`, `brand-button`, `icon`).
+- **Alpine components** are registered in `resources/js/app.js`, which bundles Livewire manually (`livewire.esm` + `Livewire.start()`, with `@livewireScriptConfig` in the layout). One file per component in `resources/js/components/`: `heroSlideshow`, `beforeAfterSlider`, `beforeAfterGallery` (carousel + fullscreen viewer; the phone's back button closes it), `mobileActionBar`, `siteHeader`.
+- **Contact form**: `App\Livewire\ContactForm` + `resources/views/livewire/contact-form.blade.php`. Fields validate on blur with `wire:model.live.blur` (in Livewire 4, plain `.blur` no longer sends a request). On submit it checks a honeypot and a rate limit (5 per IP per 10 minutes), saves a `ContactMessage`, then e-mails `App\Mail\ContactMessageReceived` (Reply-To = the visitor) to `config('site.contact_recipient')` (`CONTACT_RECIPIENT`, falling back to `MAIL_FROM_ADDRESS`). A mail failure is reported but doesn't fail the visitor's submission. Keep Alpine off the Livewire component's root element.
+- **Mail** goes through Gmail SMTP: `MAIL_USERNAME` is the Gmail address, `MAIL_PASSWORD` a Google app password.
+- **Theme**: a custom `ember-*` color scale and `--font-display` (Playfair Display) in the `@theme` block of `resources/css/app.css`; `stone` for neutrals. Tailwind v4 uses `bg-linear-to-*` for gradients.
+
+## Testing
+
+- PHPUnit. `tests/Feature/HomePageTest.php` covers rendering, config details, SEO tags and the removed auth routes (404). `tests/Feature/ContactFormTest.php` covers save + mail, validation, honeypot, rate limit, mail failure and the mail content.
+- `phpunit.xml` uses array cache/session/mail, a `sync` queue and the `testing` database, and sets `CONTACT_RECIPIENT=devis@bakson.test`.
+- Server-side tests can't catch broken Alpine/JS; check interactive changes in a real browser at phone width.
+
+---
+
+The block below is managed by Laravel Boost (`boost.json` has `"guidelines": true`) and is regenerated by `php artisan boost:install`. Don't hand-edit it; add project-specific guidance above instead.
+
 <laravel-boost-guidelines>
 === foundation rules ===
 
@@ -8,7 +50,7 @@
 This application is a Laravel application running on PHP 8.4. Always use the APIs that match the installed major version of each package — do not assume a version.
 
 Before relying on a package's API, confirm its installed version:
-- PHP packages: run `composer show --direct` to list direct dependencies with versions, or `composer show <vendor/package>` for a single package.
+- PHP packages: run `vendor/bin/sail composer show --direct` to list direct dependencies with versions, or `vendor/bin/sail composer show <vendor/package>` for a single package.
 - JS packages: check `package.json` for the installed versions.
 
 ## Conventions
@@ -28,7 +70,7 @@ Before relying on a package's API, confirm its installed version:
 
 ## Frontend Bundling
 
-- If a frontend change doesn't show in the UI or you get a "Unable to locate file in Vite manifest" error, run `npm run build` or ask the user to run `npm run dev` or `composer run dev`.
+- If a frontend change doesn't show in the UI or you get a "Unable to locate file in Vite manifest" error, run `vendor/bin/sail npm run build` or ask the user to run `vendor/bin/sail npm run dev` or `vendor/bin/sail composer run dev`.
 
 ## Documentation Files
 
@@ -66,15 +108,15 @@ Before relying on a package's API, confirm its installed version:
 
 ## Artisan
 
-- Run Artisan commands directly via the command line (e.g., `php artisan route:list`). Use `php artisan list` to discover available commands and `php artisan [command] --help` to check parameters.
-- Inspect routes with `php artisan route:list`. Filter with: `--method=GET`, `--name=users`, `--path=api`, `--except-vendor`, `--only-vendor`.
-- Read configuration values using dot notation: `php artisan config:show app.name`, `php artisan config:show database.default`. Or read config files directly from the `config/` directory.
+- Run Artisan commands directly via the command line (e.g., `vendor/bin/sail artisan route:list`). Use `vendor/bin/sail artisan list` to discover available commands and `vendor/bin/sail artisan [command] --help` to check parameters.
+- Inspect routes with `vendor/bin/sail artisan route:list`. Filter with: `--method=GET`, `--name=users`, `--path=api`, `--except-vendor`, `--only-vendor`.
+- Read configuration values using dot notation: `vendor/bin/sail artisan config:show app.name`, `vendor/bin/sail artisan config:show database.default`. Or read config files directly from the `config/` directory.
 
 ## Tinker
 
 - Execute PHP in app context for debugging and testing code. Do not create models without user approval, prefer tests with factories instead. Prefer existing Artisan commands over custom tinker code.
-- Always use single quotes to prevent shell expansion: `php artisan tinker --execute 'Your::code();'`
-  - Double quotes for PHP strings inside: `php artisan tinker --execute 'User::where("active", true)->count();'`
+- Always use single quotes to prevent shell expansion: `vendor/bin/sail artisan tinker --execute 'Your::code();'`
+  - Double quotes for PHP strings inside: `vendor/bin/sail artisan tinker --execute 'User::where("active", true)->count();'`
 
 === php rules ===
 
@@ -93,6 +135,20 @@ Before relying on a package's API, confirm its installed version:
 
 - Laravel can be deployed using [Laravel Cloud](https://cloud.laravel.com/), which is the fastest way to deploy and scale production Laravel applications.
 
+=== sail rules ===
+
+# Laravel Sail
+
+- This project runs inside Laravel Sail's Docker containers. You MUST execute all commands through Sail.
+- Start services using `vendor/bin/sail up -d` and stop them with `vendor/bin/sail stop`.
+- Open the application in the browser by running `vendor/bin/sail open`.
+- Always prefix PHP, Artisan, Composer, and Node commands with `vendor/bin/sail`. Examples:
+    - Run Artisan Commands: `vendor/bin/sail artisan migrate`
+    - Install Composer packages: `vendor/bin/sail composer install`
+    - Execute Node commands: `vendor/bin/sail npm run dev`
+    - Execute PHP scripts: `vendor/bin/sail php [script]`
+- View all available Sail commands by running `vendor/bin/sail` without arguments.
+
 === tests rules ===
 
 # Test Enforcement
@@ -103,32 +159,17 @@ Before relying on a package's API, confirm its installed version:
 - Test the changed behavior and its important failure modes, but do not add tests beyond them.
 - Read the `testing-best-practices` skill before writing tests.
 
-=== inertia-laravel/core rules ===
-
-# Inertia
-
-- Inertia creates fully client-side rendered SPAs without modern SPA complexity, leveraging existing server-side patterns.
-- Components live in `resources/js/Pages` (unless specified in `vite.config.js`). Use `Inertia::render()` for server-side routing instead of Blade views.
-- ALWAYS use `search-docs` tool for version-specific Inertia documentation and updated code examples.
-- IMPORTANT: Activate `inertia-vue-development` when working with Inertia Vue client-side patterns.
-
-# Inertia v2
-
-- Use all Inertia features from v1 and v2. Check the documentation before making changes to ensure the correct approach.
-- New features: deferred props, infinite scroll, merging props, polling, prefetching, once props, flash data.
-- When using deferred props, add an empty state with a pulsing or animated skeleton.
-
 === laravel/core rules ===
 
 # Do Things the Laravel Way
 
-- Use `php artisan make:` commands to create new files (i.e. migrations, controllers, models, etc.). You can list available Artisan commands using `php artisan list` and check their parameters with `php artisan [command] --help`.
-- If you're creating a generic PHP class, use `php artisan make:class`.
+- Use `vendor/bin/sail artisan make:` commands to create new files (i.e. migrations, controllers, models, etc.). You can list available Artisan commands using `vendor/bin/sail artisan list` and check their parameters with `vendor/bin/sail artisan [command] --help`.
+- If you're creating a generic PHP class, use `vendor/bin/sail artisan make:class`.
 - Pass `--no-interaction` to all Artisan commands to ensure they work without user input. You should also pass the correct `--options` to ensure correct behavior.
 
 ### Model Creation
 
-- When creating new models, create useful factories and seeders for them too. Ask the user if they need any other things, using `php artisan make:model --help` to check the available options.
+- When creating new models, create useful factories and seeders for them too. Ask the user if they need any other things, using `vendor/bin/sail artisan make:model --help` to check the available options.
 
 ## APIs & Eloquent Resources
 
@@ -142,34 +183,35 @@ Before relying on a package's API, confirm its installed version:
 
 - When creating models for tests, use the factories for the models. Check if the factory has custom states that can be used before manually setting up the model.
 - Faker: Use methods such as `$this->faker->word()` or `fake()->randomDigit()`. Follow existing conventions whether to use `$this->faker` or `fake()`.
-- When creating tests, make use of `php artisan make:test [options] {name}` to create a feature test, and pass `--unit` to create a unit test. Most tests should be feature tests.
+- When creating tests, make use of `vendor/bin/sail artisan make:test [options] {name}` to create a feature test, and pass `--unit` to create a unit test. Most tests should be feature tests.
+
+=== livewire/core rules ===
+
+# Livewire
+
+- Livewire allows you to build dynamic, reactive interfaces in PHP without writing JavaScript.
+- You can use Alpine.js for client-side interactions instead of JavaScript frameworks.
+- Keep state server-side so the UI reflects it. Validate and authorize in actions as you would in HTTP requests.
 
 === pint/core rules ===
 
 # Laravel Pint Code Formatter
 
-- If you have modified any PHP files, you must run `vendor/bin/pint --dirty --format agent` before finalizing changes to ensure your code matches the project's expected style.
-- Do not run `vendor/bin/pint --test --format agent`, simply run `vendor/bin/pint --format agent` to fix any formatting issues.
+- If you have modified any PHP files, you must run `vendor/bin/sail bin pint --dirty --format agent` before finalizing changes to ensure your code matches the project's expected style.
+- Do not run `vendor/bin/sail bin pint --test --format agent`, simply run `vendor/bin/sail bin pint --format agent` to fix any formatting issues.
 
 === phpunit/core rules ===
 
 # PHPUnit
 
-- This project uses PHPUnit. Create tests with `php artisan make:test --phpunit {name}`.
+- This project uses PHPUnit. Create tests with `vendor/bin/sail artisan make:test --phpunit {name}`.
 - Do not include the test suite directory in `{name}`. Use `SomeFeatureTest`, not `Feature/SomeFeatureTest`.
 - Read the `testing-best-practices` skill for guidance on coverage, naming, structure, dependency isolation, and review.
 
 ## Running Tests
 
-- Run the narrowest set of tests that covers the change. Pass a file path or `--filter=testName` to `php artisan test --compact`.
+- Run the narrowest set of tests that covers the change. Pass a file path or `--filter=testName` to `vendor/bin/sail artisan test --compact`.
 - Rerun a test after each change to it.
-- Run `vendor/bin/phpunit` to call the test runner directly. It accepts the same file path and `--filter=testName` arguments.
-
-=== inertia-vue/core rules ===
-
-# Inertia + Vue
-
-Vue components must have a single root element.
-- IMPORTANT: Activate `inertia-vue-development` when working with Inertia Vue client-side patterns.
+- Run `vendor/bin/sail bin phpunit` to call the test runner directly. It accepts the same file path and `--filter=testName` arguments.
 
 </laravel-boost-guidelines>
